@@ -11,6 +11,16 @@ function JSEE_MODULE(window, document) {
                     return v.toString(16);
                 });
     }
+    
+    function cloneObject(object) {
+        if (object.clone) {
+            return object.clone();
+        }
+        var str = JSON.stringify(object);
+        return JSON.parse(str);
+    }
+    
+
 
 /////////////////////////////////////////
 //      InMemoryEventStore
@@ -27,7 +37,7 @@ function JSEE_MODULE(window, document) {
          */
         store : function(event, callback) {
             var id = randonUUID();
-            var clonedEvent = event.clone();
+            var clonedEvent = cloneObject(event);
             clonedEvent.id = id;
             
             this._events.push(clonedEvent);
@@ -70,4 +80,8 @@ function JSEE_MODULE(window, document) {
 
 if (typeof JSEE_TEST == 'undefined') {
     JSEE = JSEE_MODULE(window, document);    
+ 
+    
 }
+
+

@@ -13,7 +13,9 @@ test("store event", function(){
     var eventStore = new JSEE.InMemoryEventStore();
     var MESSAGE = "message";
     
-    var actualId = eventStore.store(new EventMock(MESSAGE));
+    var actualId = eventStore.store({
+        message : MESSAGE
+    });
     
     ok(actualId, "ID is created");
     var storedEvents = eventStore.getStoredEvents();
@@ -34,7 +36,11 @@ test("callback", function() {
     var MESSAGE = "message";
     
     var actualEvent;
-    var actualId = eventStore.store(new EventMock(MESSAGE), function(event){
+    var actualId = eventStore.store(
+        {
+            message : MESSAGE
+        }, 
+        function(event){
         //This is in-memory storage it executes fundler at once
         actualEvent = event;        
         
@@ -57,7 +63,9 @@ test("event listener", function() {
         ok(actualEvent, "event received");
     });
     
-    var actualId = eventStore.store(new EventMock(MESSAGE));
+    var actualId = eventStore.store({
+        message : MESSAGE
+    });
     
     assertEqualEvent(actualEvent, {
         id: actualId,
