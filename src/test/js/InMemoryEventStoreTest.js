@@ -8,70 +8,49 @@ test("create", function(){
     
 });
 
-
-test("store event", function(){
+/**
+ * Any event could be stored in background. Without providing callback function.
+ * 
+ */
+test("store event in background", function(){
     var eventStore = new JSEE.InMemoryEventStore();
-    var MESSAGE = "message";
+    var DATA = "data";
     
-    var actualId = eventStore.store({
-        message : MESSAGE
-    });
+    var eventId = eventStore.store(DATA);
     
-    ok(actualId, "ID is created");
-    var storedEvents = eventStore.getStoredEvents();
-    equal(storedEvents.length, 1, "Number of stored events");
-    
-    var actualEvent = storedEvents[0];
-    
-    assertEqualEvent(actualEvent, {
-        id: actualId,
-        message: MESSAGE
-    });
-    
+    ok(eventId, "ID is created");
 }); 
 
 
 test("callback", function() {
+    expect(4);
     var eventStore = new JSEE.InMemoryEventStore();    
-    var MESSAGE = "message";
+    var DATA = "data";
     
-    var actualEvent;
-    var actualId = eventStore.store(
-        {
-            message : MESSAGE
-        }, 
-        function(event){
-        //This is in-memory storage it executes fundler at once
-        actualEvent = event;        
+    var eventId = eventStore.store(DATA, function(event){
+        ok(event.id, "ID is assigned");        
+        equal(event.data, DATA, "Data is stored");
         
-        var storedEvents = eventStore.getStoredEvents();
-        deepEqual(storedEvents, [actualEvent], "Event has been stored already");
+        var storedEvent = eventStore.get(event.id);
+        deepEqual(event, storedEvent, "Event is stored");
     });
-    assertEqualEvent(actualEvent, {
-        id: actualId,
-        message: MESSAGE
-    });
+    ok(eventId, "ID is created");
 });
 
 test("event listener", function() {
     var eventStore = new JSEE.InMemoryEventStore();    
-    var MESSAGE = "message";
+    var DATA = "data";
     
-    var actualEvent;
     eventStore.addEventListener(function(event) {
-        actualEvent = event;
-        ok(actualEvent, "event received");
+        ok(event.id, "ID is assigned");        
+        equal(event.data, DATA, "Data is stored");
+        
+        var storedEvent = eventStore.get(event.id);
+        deepEqual(event, storedEvent, "Event is stored");
     });
     
-    var actualId = eventStore.store({
-        message : MESSAGE
-    });
-    
-    assertEqualEvent(actualEvent, {
-        id: actualId,
-        message: MESSAGE
-    });
-    
+    var eventId = eventStore.store(DATA);
+    ok(eventId, "ID is created");
 });
 
 

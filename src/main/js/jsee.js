@@ -19,7 +19,20 @@ function JSEE_MODULE(window, document) {
         var str = JSON.stringify(object);
         return JSON.parse(str);
     }
-    
+
+/////////////////////////////////////////
+//      InMemoryEventStore
+/////////////////////////////////////////
+    function Event(data) {
+        this.id = randonUUID();
+        this.data = data;
+    }
+    Event.prototype.clone = function() {
+        var clone = new Event(cloneObject(this.data));
+        clone.id = this.id;
+        return clone;
+    }
+/////////////////////////////////////////
 
 
 /////////////////////////////////////////
@@ -28,6 +41,7 @@ function JSEE_MODULE(window, document) {
 
     function InMemoryEventStore() {
         this._events = new Array();
+        this._idIndex = new Object();
         this._listeners = new Array();
     }
     
@@ -35,25 +49,28 @@ function JSEE_MODULE(window, document) {
         /**
          * 
          */
-        store : function(event, callback) {
-            var id = randonUUID();
-            var clonedEvent = cloneObject(event);
-            clonedEvent.id = id;
+        store : function(data, callback) {
             
-            this._events.push(clonedEvent);
+            var event = new Event(data);
+            
+            this._events.push(event.clone());
+            this._idIndex[event.id] = this._events.length - 1;
+            
+            this._notifyAllListeners(event);
+            
             if (callback) {
-                callback(clonedEvent);
+                callback(event);
             }
-            this._notifyAllListeners(clonedEvent);
             
-            return id;
+            return event.id;
         },
         
         /**
          * 
          */
-        getStoredEvents : function() {
-            return this._events;    
+        get : function(id) {
+            var index = this._idIndex[id];
+            return this._events[index];    
         },
         
         /**
@@ -74,7 +91,8 @@ function JSEE_MODULE(window, document) {
 /////////////////////////////////////////
 
     return {
-        InMemoryEventStore : InMemoryEventStore
+        InMemoryEventStore : InMemoryEventStore,
+        Event: Event
     };
 }
 
