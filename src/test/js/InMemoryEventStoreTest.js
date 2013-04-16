@@ -28,10 +28,10 @@ test("callback", function() {
     var DATA = "data";
     
     var eventId = eventStore.store(DATA, function(event){
-        ok(event.id, "ID is assigned");        
-        equal(event.data, DATA, "Data is stored");
+        ok(event.id(), "ID is assigned");        
+        equal(event.data(), DATA, "Data is stored");
         
-        var storedEvent = eventStore.get(event.id);
+        var storedEvent = eventStore.get(event.id());
         deepEqual(event, storedEvent, "Event is stored");
     });
     ok(eventId, "ID is created");
@@ -42,10 +42,10 @@ test("event listener", function() {
     var DATA = "data";
     
     eventStore.addEventListener(function(event) {
-        ok(event.id, "ID is assigned");        
-        equal(event.data, DATA, "Data is stored");
+        ok(event.id(), "ID is assigned");        
+        equal(event.data(), DATA, "Data is stored");
         
-        var storedEvent = eventStore.get(event.id);
+        var storedEvent = eventStore.get(event.id());
         deepEqual(event, storedEvent, "Event is stored");
     });
     

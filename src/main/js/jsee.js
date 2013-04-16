@@ -19,6 +19,10 @@ function JSEE_MODULE(window, document) {
         var str = JSON.stringify(object);
         return JSON.parse(str);
     }
+    
+    function determineObjectType(object) {
+        return object.constructor;
+    }
 /////////////////////////////////////////
 //      Map
 /////////////////////////////////////////
@@ -42,14 +46,14 @@ function JSEE_MODULE(window, document) {
         this._map[value] = value;
     }
     Set.prototype.isContains = function(value) {
-        return this._map[value] != undefined;
+        return this._map[value] !== undefined;
     }
 /////////////////////////////////////////
 //      LinkedMap
 /////////////////////////////////////////
     function LinkedMap() {
         this._map = {};
-        this._list = new Array();
+        this._list = [];
     }
     LinkedMap.prototype.put = function(key, value) {
         this._list.push(value);
@@ -57,7 +61,7 @@ function JSEE_MODULE(window, document) {
     }
     LinkedMap.prototype.get = function(key) {
         var index = this._map[key];
-        if (index == undefined) {
+        if (index === undefined) {
             return undefined;
         }
         return this._list[index];
@@ -69,12 +73,18 @@ function JSEE_MODULE(window, document) {
 //      InMemoryEventStore
 /////////////////////////////////////////
     function Event(data) {
-        this.id = randonUUID();
-        this.data = data;
+        this._id = randonUUID();
+        this._data = data;
+    }
+    Event.prototype.id = function() {
+        return this._id;
+    }
+    Event.prototype.data = function() {
+        return this._data;
     }
     Event.prototype.clone = function() {
-        var clone = new Event(cloneObject(this.data));
-        clone.id = this.id;
+        var clone = new Event(cloneObject(this.data()));
+        clone._id = this._id;
         return clone;
     }
 /////////////////////////////////////////
@@ -90,17 +100,21 @@ function JSEE_MODULE(window, document) {
 /////////////////////////////////////////
 //      EventDefinition
 /////////////////////////////////////////
-    function EventDefinition(typeObject) {
-        this._typeObject = typeObject;
+    function EventDefinition(dataType) {
+        this._dataType = dataType;
+        this._models = new Set();
     }
     EventDefinition.prototype.typeObject = function() {
-        return this._typeObject;
+        return this._dataType;
     }
-    EventDefinition.toIdString = function(typeObject) {
-        return typeObject.toString();    
+    EventDefinition.toIdString = function(dataType) {
+        return dataType.toString();    
     }
     EventDefinition.prototype.id = function() {
-        return EventDefinition.toIdString(this._typeObject);
+        return EventDefinition.toIdString(this._dataType);
+    }
+    EventDefinition.prototype.models = function() {
+        return this._models;
     }
     
 /////////////////////////////////////////
@@ -108,8 +122,8 @@ function JSEE_MODULE(window, document) {
 /////////////////////////////////////////
 //      ModelDefinition
 /////////////////////////////////////////
-    function ModelDefinition(typeObject) {
-        this._typeObject = typeObject;
+    function ModelDefinition(dataType) {
+        this._dataType = dataType;
 
         //TODO: add default implementation of apply function which takes apply attribute 
         // from perspective object and invoce it. If apply attribute is an object then
@@ -122,14 +136,14 @@ function JSEE_MODULE(window, document) {
         this._initialEvents = new Set();
         
     }
-    ModelDefinition.toIdString = function(typeObject) {
-        return typeObject.toString();    
+    ModelDefinition.toIdString = function(dataType) {
+        return dataType.toString();    
     }
     ModelDefinition.prototype.id = function() {
-        return ModelDefinition.toIdString(this._typeObject);
+        return ModelDefinition.toIdString(this._dataType);
     }
-    ModelDefinition.prototype.typeObject = function() {
-        return this._typeObject;
+    ModelDefinition.prototype.dataType = function() {
+        return this._dataType;
     }
     ModelDefinition.prototype.applyFunctions = function() {
         return this._applyFunctions;
@@ -169,9 +183,9 @@ function JSEE_MODULE(window, document) {
 /////////////////////////////////////////
 
     function InMemoryEventStore() {
-        this._events = new Array();
-        this._idIndex = new Object();
-        this._listeners = new Array();
+        this._events = [];
+        this._idIndex = {};
+        this._listeners = [];
     }
     
     InMemoryEventStore.prototype = {
@@ -183,7 +197,7 @@ function JSEE_MODULE(window, document) {
             var event = new Event(data);
             
             this._events.push(event.clone());
-            this._idIndex[event.id] = this._events.length - 1;
+            this._idIndex[event.id()] = this._events.length - 1;
             
             this._notifyAllListeners(event);
             
@@ -191,7 +205,7 @@ function JSEE_MODULE(window, document) {
                 callback(event);
             }
             
-            return event.id;
+            return event.id();
         },
         
         /**
@@ -225,38 +239,55 @@ function JSEE_MODULE(window, document) {
 
     function EventProcessingBuilder(container, eventDefinition) {
         this._container = container;
-        this._event = eventDefinition;
-        this._model = null;
+        this._eventDefinition = eventDefinition;
+        this._modelDefinition = null;
         this._action = null;
     }
     
     EventProcessingBuilder.CREATE_PERSPECTIVE_ACTION = "perspective.create";
     EventProcessingBuilder.UPDATE_PERSPECTIVE_ACTION = "perspective.update";
     
-    EventProcessingBuilder.prototype.create = function(model) {
+    EventProcessingBuilder.prototype.create = function(modelDefinition) {
         this._action = EventProcessingBuilder.CREATE_PERSPECTIVE_ACTION;
-        this._model = this._container.getModelDefinition(model);
+        this._modelDefinition = this._container.getModelDefinition(modelDefinition);
         return this;
     }
     
-    EventProcessingBuilder.prototype.update = function(model) {
+    EventProcessingBuilder.prototype.update = function(modelDefinition) {
         this._action = EventProcessingBuilder.UPDATE_PERSPECTIVE_ACTION;
-        this._model = this._container.getModelDefinition(model);
+        this._modelDefinition = this._container.getModelDefinition(modelDefinition);
         return this;
     }
     
     EventProcessingBuilder.prototype.as = function(applyFunction) {
         if (EventProcessingBuilder.CREATE_PERSPECTIVE_ACTION == this._action) {
-            this._model.initialEvents().add();
+            this._modelDefinition.initialEvents().add();
         }
-        this._model.applyFunctions().put(this._event.id(), applyFunction);
+        this._modelDefinition.applyFunctions().put(this._eventDefinition.id(), 
+                                         applyFunction);
+        this._eventDefinition.models().add(this._modelDefinition.id())
         return this;
     }
     EventProcessingBuilder.prototype.by = function(matchFunction) {
-        this._model.matchFunctions().put(this._event.id(), matchFunction);
+        this._modelDefinition.matchFunctions().put(this._eventDefinition.id(), 
+                                                   matchFunction);
         return this;
     }
     
+/////////////////////////////////////////
+
+/////////////////////////////////////////
+//      EventProcessor
+/////////////////////////////////////////
+
+    function EventProcessor(context, eventDefinition) {
+        this._context = context;
+        this._eventDefinition = eventDefinition;
+    }
+    EventProcessor.prototype.process = function(event) {
+        
+    }
+
 /////////////////////////////////////////
 
 /////////////////////////////////////////
@@ -283,16 +314,16 @@ function JSEE_MODULE(window, document) {
         return new ModelDefinitionBuilder(this, modelDefinition);
     }
     
-    Container.prototype.when = function(eventType) {
-        var eventDefinition = this.getEventDefinition(eventType);
+    Container.prototype.when = function(eventDataType) {
+        var eventDefinition = this.getEventDefinition(eventDataType);
         return new EventProcessingBuilder(this, eventDefinition);
     }
     
-    Container.prototype.getEventDefinition = function(eventType) {
+    Container.prototype.getEventDefinition = function(eventDataType) {
         var eventDefinition = 
-            this._events.get(EventDefinition.toIdString(eventType));
+            this._events.get(EventDefinition.toIdString(eventDataType));
         if (!eventDefinition) {
-            throw "Undefined event type: " + eventType;
+            throw "Undefined event type: " + eventDataType;
         }
         return eventDefinition;
     }
@@ -304,6 +335,16 @@ function JSEE_MODULE(window, document) {
             throw "Undefined model type: " + modelType;
         }
         return modelDefinition;
+    }
+    
+    Container.prototype.apply = function(eventData) {
+        var eventType = determineObjectType(eventData);
+        var eventDefinition = this.getEventDefinition(eventType);
+        
+        var processor = new EventProcessor(this, eventDefinition);
+        var event = new Event(eventData);
+        processor.process(event);
+        return event.id();
     }
 /////////////////////////////////////////
 
