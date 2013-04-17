@@ -16,7 +16,7 @@ test("store event in background", function(){
     var eventStore = new JSEE.InMemoryEventStore();
     var DATA = "data";
     
-    var eventId = eventStore.store(DATA);
+    var eventId = eventStore.store(new JSEE.Event(DATA));
     
     ok(eventId, "ID is created");
 }); 
@@ -27,7 +27,7 @@ test("callback", function() {
     var eventStore = new JSEE.InMemoryEventStore();    
     var DATA = "data";
     
-    var eventId = eventStore.store(DATA, function(event){
+    var eventId = eventStore.store(new JSEE.Event(DATA), function(event){
         ok(event.id(), "ID is assigned");        
         equal(event.data(), DATA, "Data is stored");
         
@@ -49,7 +49,7 @@ test("event listener", function() {
         deepEqual(event, storedEvent, "Event is stored");
     });
     
-    var eventId = eventStore.store(DATA);
+    var eventId = eventStore.store(new JSEE.Event(DATA));
     ok(eventId, "ID is created");
 });
 

@@ -23,6 +23,11 @@ function JSEE_MODULE(window, document) {
     function determineObjectType(object) {
         return object.constructor;
     }
+    
+    function determineObjectTypeName(object) {
+        return object.constructor.toString();
+    }
+    
 /////////////////////////////////////////
 //      Map
 /////////////////////////////////////////
@@ -66,6 +71,16 @@ function JSEE_MODULE(window, document) {
         }
         return this._list[index];
     }
+    LinkedMap.prototype.getIndex = function(key) {
+        return this._map[key];
+    }    
+    LinkedMap.prototype.getByIndex = function(index) {
+        return this._list[index];   
+    }
+    LinkedMap.prototype.size = function() {
+        return this._list.length;
+    }
+    
 /////////////////////////////////////////
     
 
@@ -183,21 +198,14 @@ function JSEE_MODULE(window, document) {
 /////////////////////////////////////////
 
     function InMemoryEventStore() {
-        this._events = [];
-        this._idIndex = {};
+        this._eventsLog = new LinkedMap();
         this._listeners = [];
     }
     
-    InMemoryEventStore.prototype = {
-        /**
-         * 
-         */
-        store : function(data, callback) {
+    InMemoryEventStore.prototype.store = function(event, callback) {
             
-            var event = new Event(data);
             
-            this._events.push(event.clone());
-            this._idIndex[event.id()] = this._events.length - 1;
+            this._eventsLog.put(event.id(), event.clone());
             
             this._notifyAllListeners(event);
             
@@ -206,30 +214,34 @@ function JSEE_MODULE(window, document) {
             }
             
             return event.id();
-        },
-        
-        /**
-         * 
-         */
-        get : function(id) {
-            var index = this._idIndex[id];
-            return this._events[index];    
-        },
-         
-        /**
-         * 
-         */
-         addEventListener : function(listener) {
+    };
+    
+    InMemoryEventStore.prototype.selectFrom = function(id, callback) {
+        var i = this._eventsLog.getIndex(id);
+        var thisObject = this;
+        callback(function(){
+            return thisObject._eventsLog.getByIndex(i);    
+        });
+    }
+    
+    InMemoryEventStore.prototype.get = function(id, callback) {
+            var event = this._eventsLog.get(id);
+            if (callback !== undefined) {
+                callback(event);
+            }
+            return event;
+    }
+    
+    InMemoryEventStore.prototype.addEventListener = function(listener) {
             this._listeners.push(listener);    
-         },
-         
-         _notifyAllListeners : function(event) {
+    }
+    
+    InMemoryEventStore.prototype. _notifyAllListeners = function(event) {
              for(var i in this._listeners) {
                  var listener = this._listeners[i];
                  listener(event);
              }
-         }
-    };
+    }
     
 /////////////////////////////////////////
 
@@ -280,14 +292,48 @@ function JSEE_MODULE(window, document) {
 //      EventProcessor
 /////////////////////////////////////////
 
-    function EventProcessor(context, eventDefinition) {
-        this._context = context;
+    function EventProcessor(container, eventDefinition) {
+        this._container = container;
         this._eventDefinition = eventDefinition;
     }
     EventProcessor.prototype.process = function(event) {
-        
+        var eventStore = this._container.getEventStore();
+        eventStore.store(event);
     }
 
+/////////////////////////////////////////
+
+/////////////////////////////////////////
+//      ModelSelector
+/////////////////////////////////////////
+
+    function ModelSelector(container, modelDefinition, callback) {
+        this._container = container;
+        this._modelDefinition = modelDefinition;
+        this._callback = callback;
+    }
+    ModelSelector.prototype.byId = function(id) {
+        var thisObject = this;
+        this._container._eventStore.get(id, function(initialEvent){
+            //first event must be initial for this model
+            var createFunction = thisObject._modelDefinition.createFunction();
+            var model = createFunction();
+            thisObject._container._eventStore.selectFrom(id, function(next){
+                // then go through other events and filter out
+                // events for which apply functions are defined
+                for(var event = next(); event !== undefined; event = next()) {
+                    var eventDataType = determineObjectType(event.data());
+                    var eventDefinition = thisObject._container.getEventDefinition(eventDataType);
+                    var applyFunction = 
+                        thisObject._modelDefinition.applyFunctions().get(eventDefinition.id());
+                    applyFunction(model, event);    
+                }
+                thisObject._callback(model);
+            });
+            
+        });
+        
+    }
 /////////////////////////////////////////
 
 /////////////////////////////////////////
@@ -297,6 +343,7 @@ function JSEE_MODULE(window, document) {
     function Container() {
         this._events = new LinkedMap();
         this._models = new LinkedMap();
+        this._eventStore = new InMemoryEventStore();
     } 
     
     Container.prototype = {
@@ -304,11 +351,11 @@ function JSEE_MODULE(window, document) {
         InMemoryEventStore : InMemoryEventStore,
         Event: Event,
     };
-    Container.prototype.event = function(eventType) {
+    Container.prototype.event = function(eventDataType) {
         var eventDefinition = new EventDefinition(eventType);
         this._events.put(eventDefinition.id(), eventDefinition);
     }
-    Container.prototype.model = function(modelType) {
+    Container.prototype.model = function(eventDataType) {
         var modelDefinition = new ModelDefinition(modelType);
         this._models.put(modelDefinition.id(), modelDefinition);
         return new ModelDefinitionBuilder(this, modelDefinition);
@@ -345,6 +392,14 @@ function JSEE_MODULE(window, document) {
         var event = new Event(eventData);
         processor.process(event);
         return event.id();
+    }
+    Container.prototype.get = function(modelDataType, callback) {
+        var modelDefinition = this.getModelDefinition(modelDataType);
+        return new ModelSelector(this, modelDefinition, callback);            
+    }
+    
+    Container.prototype.getEventStore = function() {
+        return this._eventStore;
     }
 /////////////////////////////////////////
 

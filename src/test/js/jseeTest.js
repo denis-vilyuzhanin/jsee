@@ -11,10 +11,10 @@ function ProductAdded(orderId, product) {
     this.product = product;
 }
     
-function Order(user, products, totalCost) {
-    this.user = user;
-    this.products = products;
-    this.totalCost = totalCost;
+function Order() {
+    this.user = null;
+    this.products = null;
+    this.totalCost = null;
 }
     
 var USER_NAME = "Fooman";
@@ -32,6 +32,7 @@ var EXPECTED_TOTAL_COST = PRODUCTS[0].price + PRODUCTS[1].price;
     
 
 test("Perspective create/update", function(){
+    expect(3);
     JSEE.event(OrderConfirmend);
     JSEE.event(ProductAdded);
     JSEE.model(Order).create(function(){
@@ -44,11 +45,13 @@ test("Perspective create/update", function(){
             return event.id();
         })
         .as(function(order, event){
+            order.user = event.data().event.data().user;
+            order.products = event.data().products;
             var totalCost = 0;
             for(var i = 0; i < event.data().products.length(); i++) {
                 totalCost += event.data().products[i].price;
             } 
-            return new Order(event.data().user, event.data().products, totalCost);
+            order.totalCost = totalCost;
         });
     
     JSEE.when(ProductAdded)
@@ -76,9 +79,9 @@ test("Perspective create/update", function(){
     
     ok(eventId, "event ID");
     
-    /*JSEE.get(Order, function(order){
+    JSEE.get(Order, function(order){
         deepEqual(order, new Order(USER_NAME, PRODUCTS, EXPECTED_TOTAL_COST));    
-    }).byId(id);*/
+    }).byId(eventId);
     
 });
 
