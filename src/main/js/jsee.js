@@ -24,8 +24,13 @@ function JSEE_MODULE(window, document) {
         return object.constructor;
     }
     
-    function determineObjectTypeName(object) {
-        return object.constructor.toString();
+    function convertToDataType(object) {
+        if (typeof(object) == 'string') {
+            return object;
+        } else if (typeof(object) == 'function') {
+            return object.name;
+        }
+        throw "Unsupported data type. Please use string or function";
     }
     
 /////////////////////////////////////////
@@ -87,12 +92,19 @@ function JSEE_MODULE(window, document) {
 /////////////////////////////////////////
 //      InMemoryEventStore
 /////////////////////////////////////////
-    function Event(data) {
+    function Event(data, type) {
         this._id = randonUUID();
         this._data = data;
+        if (type == undefined) {
+            type = convertToDataType(determineObjectType(data));
+        }
+        this._type = type;
     }
     Event.prototype.id = function() {
         return this._id;
+    }
+    Event.prototype.type = function() {
+        return this._type;
     }
     Event.prototype.data = function() {
         return this._data;
@@ -100,6 +112,7 @@ function JSEE_MODULE(window, document) {
     Event.prototype.clone = function() {
         var clone = new Event(cloneObject(this.data()));
         clone._id = this._id;
+        clone._type = this._type;
         return clone;
     }
 /////////////////////////////////////////
@@ -220,7 +233,7 @@ function JSEE_MODULE(window, document) {
         var i = this._eventsLog.getIndex(id);
         var thisObject = this;
         callback(function(){
-            return thisObject._eventsLog.getByIndex(i);    
+            return thisObject._eventsLog.getByIndex(i++);    
         });
     }
     
@@ -259,15 +272,15 @@ function JSEE_MODULE(window, document) {
     EventProcessingBuilder.CREATE_PERSPECTIVE_ACTION = "perspective.create";
     EventProcessingBuilder.UPDATE_PERSPECTIVE_ACTION = "perspective.update";
     
-    EventProcessingBuilder.prototype.create = function(modelDefinition) {
+    EventProcessingBuilder.prototype.create = function(modelObjectType) {
         this._action = EventProcessingBuilder.CREATE_PERSPECTIVE_ACTION;
-        this._modelDefinition = this._container.getModelDefinition(modelDefinition);
+        this._modelDefinition = this._container.getModelDefinition(modelObjectType);
         return this;
     }
     
-    EventProcessingBuilder.prototype.update = function(modelDefinition) {
+    EventProcessingBuilder.prototype.update = function(modelObjectType) {
         this._action = EventProcessingBuilder.UPDATE_PERSPECTIVE_ACTION;
-        this._modelDefinition = this._container.getModelDefinition(modelDefinition);
+        this._modelDefinition = this._container.getModelDefinition(modelObjectType);
         return this;
     }
     
@@ -296,9 +309,9 @@ function JSEE_MODULE(window, document) {
         this._container = container;
         this._eventDefinition = eventDefinition;
     }
-    EventProcessor.prototype.process = function(event) {
+    EventProcessor.prototype.process = function(event, callback) {
         var eventStore = this._container.getEventStore();
-        eventStore.store(event);
+        eventStore.store(event, callback);
     }
 
 /////////////////////////////////////////
@@ -322,8 +335,7 @@ function JSEE_MODULE(window, document) {
                 // then go through other events and filter out
                 // events for which apply functions are defined
                 for(var event = next(); event !== undefined; event = next()) {
-                    var eventDataType = determineObjectType(event.data());
-                    var eventDefinition = thisObject._container.getEventDefinition(eventDataType);
+                    var eventDefinition = thisObject._container.getEventDefinition(event.type());
                     var applyFunction = 
                         thisObject._modelDefinition.applyFunctions().get(eventDefinition.id());
                     applyFunction(model, event);    
@@ -351,50 +363,57 @@ function JSEE_MODULE(window, document) {
         InMemoryEventStore : InMemoryEventStore,
         Event: Event,
     };
-    Container.prototype.event = function(eventDataType) {
-        var eventDefinition = new EventDefinition(eventType);
+    Container.prototype.event = function(objectType) {
+        var dataType = convertToDataType(objectType);
+        var eventDefinition = new EventDefinition(dataType);
         this._events.put(eventDefinition.id(), eventDefinition);
     }
-    Container.prototype.model = function(eventDataType) {
-        var modelDefinition = new ModelDefinition(modelType);
+    Container.prototype.model = function(objectType) {
+        var dataType = convertToDataType(objectType);
+        var modelDefinition = new ModelDefinition(dataType);
         this._models.put(modelDefinition.id(), modelDefinition);
         return new ModelDefinitionBuilder(this, modelDefinition);
     }
     
-    Container.prototype.when = function(eventDataType) {
-        var eventDefinition = this.getEventDefinition(eventDataType);
+    Container.prototype.when = function(objectType) {
+        var dataType = convertToDataType(objectType);
+        var eventDefinition = this.getEventDefinition(dataType);
         return new EventProcessingBuilder(this, eventDefinition);
     }
     
-    Container.prototype.getEventDefinition = function(eventDataType) {
+    Container.prototype.getEventDefinition = function(objectType) {
+        var dataType = convertToDataType(objectType);
         var eventDefinition = 
-            this._events.get(EventDefinition.toIdString(eventDataType));
+            this._events.get(EventDefinition.toIdString(dataType));
         if (!eventDefinition) {
-            throw "Undefined event type: " + eventDataType;
+            throw "Undefined event type: " + dataType;
         }
         return eventDefinition;
     }
     
-    Container.prototype.getModelDefinition = function(modelType) {
+    Container.prototype.getModelDefinition = function(objectType) {
+        var dataType = convertToDataType(objectType);
         var modelDefinition = 
-            this._models.get(ModelDefinition.toIdString(modelType));
+            this._models.get(ModelDefinition.toIdString(dataType));
         if (!modelDefinition) {
-            throw "Undefined model type: " + modelType;
+            throw "Undefined model type: " + dataType;
         }
         return modelDefinition;
     }
     
-    Container.prototype.apply = function(eventData) {
-        var eventType = determineObjectType(eventData);
-        var eventDefinition = this.getEventDefinition(eventType);
+    Container.prototype.apply = function(eventData, callback) {
+        var objectType = determineObjectType(eventData);
+        var dataType = convertToDataType(objectType);
+        var eventDefinition = this.getEventDefinition(dataType);
         
         var processor = new EventProcessor(this, eventDefinition);
         var event = new Event(eventData);
-        processor.process(event);
+        processor.process(event, callback);
         return event.id();
     }
-    Container.prototype.get = function(modelDataType, callback) {
-        var modelDefinition = this.getModelDefinition(modelDataType);
+    Container.prototype.get = function(objectType, callback) {
+        var dataType = convertToDataType(objectType);
+        var modelDefinition = this.getModelDefinition(dataType);
         return new ModelSelector(this, modelDefinition, callback);            
     }
     
