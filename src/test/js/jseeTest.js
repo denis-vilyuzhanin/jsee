@@ -1,6 +1,7 @@
 
 module('JSEE')
 
+
 function OrderConfirmend(user, products) {
     this.user = user;
     this.products = products;
@@ -32,8 +33,10 @@ var EXPECTED_TOTAL_COST = PRODUCTS[0].price + PRODUCTS[1].price;
     
 
 test("Perspective create/update", function(){
-    expect(2);
-    JSEE.event(OrderConfirmend);
+    expect(5);
+    JSEE.event(OrderConfirmend).restoreAs(function(json){
+        return new OrderConfirmend(json.user, json.products);
+    });
     JSEE.event(ProductAdded);
     JSEE.model(Order).create(function(){
         return new Order();    
@@ -41,15 +44,15 @@ test("Perspective create/update", function(){
     
     JSEE.when(OrderConfirmend)
         .create(Order)
-        .by(function(event){
-            return event.id();
+        .by(function(eventId, order){
+            return id;
         })
-        .as(function(order, event){
-            order.user = event.data().user;
-            order.products = event.data().products;
+        .as(function(order, eventId, orderConfirmed){
+            order.user = orderConfirmed.user;
+            order.products = orderConfirmed.products;
             var totalCost = 0;
-            for(var i = 0; i < event.data().products.length; i++) {
-                totalCost += event.data().products[i].price;
+            for(var i = 0; i < orderConfirmed.products.length; i++) {
+                totalCost += orderConfirmed.products[i].price;
             } 
             order.totalCost = totalCost;
         });
@@ -70,11 +73,13 @@ test("Perspective create/update", function(){
             throw "Undefined product";
         });
     
-    
-    var eventId = JSEE.apply(new OrderConfirmend(USER_NAME, PRODUCTS), function(event){
-        /*JSEE.get(function(storedEvent){
-            deepEqual(event, storedEvent, "Event was stored");
-        }).byId(event.id());*/
+    var orderConfirmedEvent = new OrderConfirmend(USER_NAME, PRODUCTS);
+    var eventId = JSEE.apply(orderConfirmedEvent, function(eventId){
+        JSEE.get(OrderConfirmend, function(storedEvent){
+            equal(storedEvent.user, orderConfirmedEvent.user, "stored user");
+            deepEqual(storedEvent.products, orderConfirmedEvent.products, "stored products");
+            deepEqual(storedEvent, orderConfirmedEvent, "stored event");
+        }).byId(eventId);
     });
     
     ok(eventId, "event ID");

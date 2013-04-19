@@ -17,7 +17,9 @@ function JSEE_MODULE(window, document) {
             return object.clone();
         }
         var str = JSON.stringify(object);
-        return JSON.parse(str);
+        var clone = JSON.parse(str);
+        
+        return clone;
     }
     
     function determineObjectType(object) {
@@ -31,6 +33,14 @@ function JSEE_MODULE(window, document) {
             return object.name;
         }
         throw "Unsupported data type. Please use string or function";
+    }
+    
+    function defaultStoreFunction(object) {
+        return object;
+    }
+    
+    function defaultRestoreFunction(json) {
+        return json;
     }
     
 /////////////////////////////////////////
@@ -118,10 +128,26 @@ function JSEE_MODULE(window, document) {
 /////////////////////////////////////////
 
 /////////////////////////////////////////
-//      InMemoryEventStore
+//      Definition
 /////////////////////////////////////////
-    function State(data) {
-        this.data = data;
+    function Definition() {
+        this._storeFunction = defaultStoreFunction;
+        this._restoreFunction = defaultRestoreFunction;
+    }
+    Definition.prototype.isEvent = function() {
+        throw "Definition.isEvent() is abstract and must be implemented";
+    }
+    Definition.prototype.storeFunction = function(value) {
+        if (arguments.length > 0) {
+            this._storeFunction = value;
+        }
+        return this._storeFunction;
+    }
+    Definition.prototype.restoreFunction = function(value) {
+        if (arguments.length > 0) {
+            this._restoreFunction = value;
+        }
+        return this._restoreFunction;
     }
 /////////////////////////////////////////
 
@@ -131,6 +157,11 @@ function JSEE_MODULE(window, document) {
     function EventDefinition(dataType) {
         this._dataType = dataType;
         this._models = new Set();
+    }
+    EventDefinition.prototype = new Definition();
+    
+    EventDefinition.prototype.isEvent = function() {
+        return true;
     }
     EventDefinition.prototype.typeObject = function() {
         return this._dataType;
@@ -145,6 +176,25 @@ function JSEE_MODULE(window, document) {
         return this._models;
     }
     
+/////////////////////////////////////////
+
+/////////////////////////////////////////
+//      EventDefinitionBuilder
+/////////////////////////////////////////
+    function EventDefinitionBuilder(container, eventDefinition) {
+        this._context = container;
+        this._eventDefinition = eventDefinition;    
+    }
+    EventDefinitionBuilder.prototype.storeAs = function(storeFunction) {
+        this._eventDefinition.storeFunction(storeFunction);
+        return true;
+    }
+    EventDefinitionBuilder.prototype.restoreAs = function(restoreFunction) {
+        this._eventDefinition.restoreFunction(restoreFunction);
+        return true;
+    }
+    
+
 /////////////////////////////////////////
 
 /////////////////////////////////////////
@@ -166,6 +216,10 @@ function JSEE_MODULE(window, document) {
     }
     ModelDefinition.toIdString = function(dataType) {
         return dataType.toString();    
+    }
+    ModelDefinition.prototype = new Definition();
+    ModelDefinition.prototype.isEvent = function() {
+        return false;
     }
     ModelDefinition.prototype.id = function() {
         return ModelDefinition.toIdString(this._dataType);
@@ -210,22 +264,18 @@ function JSEE_MODULE(window, document) {
 //      InMemoryEventStore
 /////////////////////////////////////////
 
-    function InMemoryEventStore() {
+    function InMemoryEventStore(container, params) {
+        this._container = container;
         this._eventsLog = new LinkedMap();
         this._listeners = [];
     }
     
     InMemoryEventStore.prototype.store = function(event, callback) {
-            
-            
             this._eventsLog.put(event.id(), event.clone());
-            
             this._notifyAllListeners(event);
-            
             if (callback) {
                 callback(event);
             }
-            
             return event.id();
     };
     
@@ -309,9 +359,20 @@ function JSEE_MODULE(window, document) {
         this._container = container;
         this._eventDefinition = eventDefinition;
     }
-    EventProcessor.prototype.process = function(event, callback) {
-        var eventStore = this._container.getEventStore();
-        eventStore.store(event, callback);
+    EventProcessor.prototype.process = function(eventData, callback) {
+        var event = this._wrap(eventData);
+        this._container._eventStore.store(event, function(event){
+            if (callback !== undefined) {
+                callback(event.id());
+            }
+        });
+        return event;
+    }
+    EventProcessor.prototype._wrap = function(eventData) {
+        var storeFunction = this._eventDefinition.storeFunction();
+        var dataToStore = storeFunction(eventData);
+        var event = new Event(dataToStore);
+        return event;
     }
 
 /////////////////////////////////////////
@@ -338,13 +399,33 @@ function JSEE_MODULE(window, document) {
                     var eventDefinition = thisObject._container.getEventDefinition(event.type());
                     var applyFunction = 
                         thisObject._modelDefinition.applyFunctions().get(eventDefinition.id());
-                    applyFunction(model, event);    
+                    var restoreFunction = eventDefinition.restoreFunction();
+                    var data = restoreFunction(event.data());
+                    applyFunction(model, event.id(), data);    
                 }
                 thisObject._callback(model);
             });
             
         });
         
+    }
+/////////////////////////////////////////
+
+/////////////////////////////////////////
+//      EventSelector
+/////////////////////////////////////////
+    function EventSelector(container, eventDefinition, callback) {
+        this._container = container;
+        this._eventDefinition = eventDefinition;
+        this._callback = callback;
+    }
+    EventSelector.prototype.byId = function(id) {
+        var thisObject = this;
+        this._container._eventStore.get(id, function(event){
+            var restoreFunction = thisObject._eventDefinition.restoreFunction();
+            var data = event ? restoreFunction(event.data()) : undefined;
+            thisObject._callback(data);
+        });
     }
 /////////////////////////////////////////
 
@@ -367,6 +448,7 @@ function JSEE_MODULE(window, document) {
         var dataType = convertToDataType(objectType);
         var eventDefinition = new EventDefinition(dataType);
         this._events.put(eventDefinition.id(), eventDefinition);
+        return new EventDefinitionBuilder(this, eventDefinition);
     }
     Container.prototype.model = function(objectType) {
         var dataType = convertToDataType(objectType);
@@ -385,7 +467,7 @@ function JSEE_MODULE(window, document) {
         var dataType = convertToDataType(objectType);
         var eventDefinition = 
             this._events.get(EventDefinition.toIdString(dataType));
-        if (!eventDefinition) {
+        if (eventDefinition == undefined) {
             throw "Undefined event type: " + dataType;
         }
         return eventDefinition;
@@ -395,10 +477,20 @@ function JSEE_MODULE(window, document) {
         var dataType = convertToDataType(objectType);
         var modelDefinition = 
             this._models.get(ModelDefinition.toIdString(dataType));
-        if (!modelDefinition) {
+        if (modelDefinition == undefined) {
             throw "Undefined model type: " + dataType;
         }
         return modelDefinition;
+    }
+    
+    Container.prototype.findDefinition = function(objectType) {
+        var dataType = convertToDataType(objectType);
+        var definition = this._models.get(ModelDefinition.toIdString(dataType));
+        if (definition !== undefined) {
+            return definition;
+        }
+        definition = this._events.get(EventDefinition.toIdString(dataType));
+        return definition;
     }
     
     Container.prototype.apply = function(eventData, callback) {
@@ -407,19 +499,20 @@ function JSEE_MODULE(window, document) {
         var eventDefinition = this.getEventDefinition(dataType);
         
         var processor = new EventProcessor(this, eventDefinition);
-        var event = new Event(eventData);
-        processor.process(event, callback);
+        var event = processor.process(eventData, callback);
         return event.id();
     }
     Container.prototype.get = function(objectType, callback) {
-        var dataType = convertToDataType(objectType);
-        var modelDefinition = this.getModelDefinition(dataType);
-        return new ModelSelector(this, modelDefinition, callback);            
+        var definition = this.findDefinition(objectType);
+        if (definition == undefined) {
+            throw "Undefined object type: " + objectType;
+        }
+        if (!definition.isEvent()) {
+            return new ModelSelector(this, definition, callback);            
+        }
+        return new EventSelector(this, definition, callback);
     }
     
-    Container.prototype.getEventStore = function() {
-        return this._eventStore;
-    }
 /////////////////////////////////////////
 
     return new Container();
